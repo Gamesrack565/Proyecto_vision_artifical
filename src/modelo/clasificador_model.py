@@ -77,8 +77,11 @@ class CBIRClassifier:
         clase_final = resultados_finales[0]['clase_recuperada']
         error_distancia = resultados_finales[0]['indice_error']
 
-        # Validamos si la imagen ingresada es un objeto desconocido
-        if error_distancia > 3.5:
-            return ("Desconocido", resultados_finales, error_distancia)
+        print(f"--> [DEBUG] Motor CBIR - Distancia a la fruta más cercana: {error_distancia:.3f}")
+
+        # UMBRAL DE RECHAZO MODERADO: Si la distancia matemática supera 2.5
+        if error_distancia > 1.5:
+            print("--> [DEBUG] RECHAZADO POR FILTRO MATEMÁTICO (Muy lejos del dataset)")
+            return ("No entendí tu imagen", [], error_distancia)
 
         return (clase_final, resultados_finales, error_distancia)

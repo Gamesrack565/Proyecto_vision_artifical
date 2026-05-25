@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
         title.setStyleSheet("font-size: 40px; font-weight: 300; color: #5B2C6F; margin-bottom: 10px;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        subtitle = QLabel("Proyecto de Visión Artificial\nDesarrollado por: Belén Castillo & Equipo")
+        subtitle = QLabel("Proyecto de Visión Artificial\nDesarrollado por:")
         subtitle.setStyleSheet("font-size: 16px; color: #7F8C8D; line-height: 1.5;")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
