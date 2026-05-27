@@ -123,6 +123,18 @@ class MainWindow(QMainWindow):
         # --- BARRA SUPERIOR ---
         top_bar = QHBoxLayout()
         btn_load = QPushButton("Seleccionar Imagen")
+        btn_load.setStyleSheet("""
+            QPushButton {
+                background-color: #9324FF; 
+                color: #FFFFFF;
+                border: none;
+                border-radius: 8px; 
+                padding: 10px 20px;
+                font-size: 14px; 
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #AA52FF; } 
+        """)
         btn_load.clicked.connect(self.seleccionar_imagen)
         
         self.lbl_status = QLabel("")
@@ -136,6 +148,7 @@ class MainWindow(QMainWindow):
         # --- SECCIÓN SUPERIOR: Imagen de Referencia (Centrada y Grande) ---
         self.display_query = QLabel("IMAGEN DE REFERENCIA")
         self.display_query.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
         # Asignamos un tamaño fijo bastante grande para que luzca bien
         self.display_query.setFixedSize(600, 400) 
         self.display_query.setStyleSheet("""

@@ -1,0 +1,6 @@
+                 Pred_onion  Pred_cashew  Pred_watermelon  Pred_plum  Pred_orange
+Real_onion               75            0                0          0            0
+Real_cashew               0          210                0          0            0
+Real_watermelon           0            0              192          0            0
+Real_plum                 0            0                0        264            0
+Real_orange               0            0                0          0          103

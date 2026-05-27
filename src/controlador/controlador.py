@@ -1,6 +1,10 @@
 import os
 from src.modelo.image_model import ImageModel
 from src.modelo.clasificador_model import CBIRClassifier
+import pandas as pd
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 class MainController:
     def __init__(self, dataset_path):
@@ -67,3 +71,59 @@ class MainController:
         )
 
         return (prediccion, top_5, error)
+    
+    def generar_matriz_confusion(self, ruta_carpeta_prueba, archivo_salida='matriz_confusion.csv'):
+        print("\n--- INICIANDO EXAMEN: GENERANDO MATRIZ DE CONFUSIÓN ---")
+        y_verdadero = []
+        y_predicho = []
+
+        # Las clases que tu modelo conoce
+        clases = self.image_model.target_classes
+
+        for clase_real in clases:
+            ruta_clase = os.path.join(ruta_carpeta_prueba, clase_real)
+            if not os.path.exists(ruta_clase): 
+                continue
+
+            print(f"Evaluando imágenes de la carpeta: {clase_real}...")
+            # Analizamos cada imagen de esta carpeta
+            for img_name in os.listdir(ruta_clase):
+                if img_name.startswith("._"): continue
+                
+                ruta_img = os.path.join(ruta_clase, img_name)
+                
+                # 1. La IA extrae el vector
+                vector_ia = self.image_model.extraer_caracteristicas_imagen_usuario(ruta_img)
+                
+                if vector_ia is not None:
+                    # 2. La IA hace su predicción
+                    prediccion, _, _ = self.classifier.consultar_nueva_imagen(vector_ia, ruta_img)
+                    
+                    # 3. Guardamos la realidad vs la predicción
+                    y_verdadero.append(clase_real)
+                    y_predicho.append(prediccion)
+
+        # Usamos scikit-learn para cruzar los datos matemáticamente
+        matriz = confusion_matrix(y_verdadero, y_predicho, labels=clases)
+        
+        # Convertimos la matriz en una tabla bonita de Pandas
+        df_matriz = pd.DataFrame(matriz, 
+                                 index=[f"Real_{c}" for c in clases], 
+                                 columns=[f"Pred_{c}" for c in clases])
+        
+        # Exportamos al archivo
+        with open('matriz_confusion.txt', 'w') as f:
+            f.write(df_matriz.to_string())
+        print(f"\n¡Examen terminado! Matriz guardada en: matriz_confusion.txt")
+
+        plt.figure(figsize=(8, 6))
+        # Usamos 'Purples' para que combine con el diseño de tu Dark UI
+        sns.heatmap(df_matriz, annot=True, fmt='d', cmap='Purples') 
+        plt.title('Matriz de Confusión CBIR')
+        plt.ylabel('Fruta Real (Verdadero)')
+        plt.xlabel('Predicción de la IA')
+
+        # Guardar como imagen
+        plt.tight_layout()
+        plt.savefig('matriz_confusion.png')
+        print("Matriz guardada como imagen: matriz_confusion.png")
