@@ -12,7 +12,7 @@ class MainController:
         self.classifier = CBIRClassifier()
         self.dataset_path = dataset_path
 
-    def ejecutar_procesamiento_inicial(self, callback=None):
+    def ejecutar_procesamiento_inicial(self, callback=None, forzar_recalculo=False):
         def log(mensaje):
             print(mensaje)
             if callback:
@@ -20,14 +20,16 @@ class MainController:
 
         log("--- FASE 1: EXTRACCIÓN Y BASE DE DATOS ---")
         
-        # MEJORA: Evitamos los 30 minutos de espera si el CSV ya está creado
-        if os.path.exists('base_datos_caracteristicas.csv'):
+        # LÓGICA DE DECISIÓN: 
+        # Si NO forzamos y el CSV existe, usamos la carga ultra rápida.
+        # Si forzamos, o si el archivo no existe, hace el escaneo de 30 minutos.
+        if not forzar_recalculo and os.path.exists('base_datos_caracteristicas.csv'):
             log("Base de datos CSV detectada. Saltando extracción de imágenes...")
         else:
             log("Paso 1, 2 y 3: Cargando imágenes y detectando objetos (Tomará tiempo)...")
             self.image_model.load_and_process_dataset()
             
-            log("Paso 4: Extrayendo características (Solidez, Circ, Matiz, Saturación, Textura)...")
+            log("Paso 4: Extrayendo características avanzadas (Forma, Textura, Color)...")
             db = self.image_model.create_indexed_database()
             
             if db is not None:
@@ -47,18 +49,45 @@ class MainController:
 
     def procesar_consulta(self, ruta_imagen, callback=None):
         if callback:
+            callback("Analizando imagen...")
+
+        import cv2 # Nos aseguramos de tener OpenCV disponible aquí
+
+        # ==============================================================
+        # DEFENSA 1: BLOQUEO DE PERSONAS Y ROSTROS (Haar Cascade)
+        # ==============================================================
+        image_cv = cv2.imread(ruta_imagen)
+        if image_cv is not None:
+            gray_cv = cv2.cvtColor(image_cv, cv2.COLOR_BGR2GRAY)
+            # Cargamos el modelo pre-entrenado de OpenCV para detectar rostros frontales
+            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            
+            # minNeighbors=10 es el secreto. Exige mucha seguridad antes de decir "es una cara"
+            # minSize=(150, 150) asegura que no confunda manchas pequeñas con rostros
+            rostros = face_cascade.detectMultiScale(gray_cv, scaleFactor=1.1, minNeighbors=7, minSize=(80, 80))
+            
+            if len(rostros) > 0:
+                print("--> [DEBUG] SEGURIDAD: Rostro humano detectado. Bloqueando consulta.")
+                # Al devolver los corchetes vacíos [], tu vista automáticamente mostrará "BLOQUEADO"
+                return ("Rostro humano detectado", [], 0)
+
+        # ==============================================================
+        # EXTRACCIÓN NORMAL DE LA FRUTA
+        # ==============================================================
+        if callback:
             callback("Segmentando imagen y extrayendo vector...")
 
         vector_ia = self.image_model.extraer_caracteristicas_imagen_usuario(ruta_imagen)
 
-        if vector_ia is None:
-            return ("Error al segmentar imagen", [], 0)
+        # DEFENSA 2: Si no encontró nada con forma en absoluto (ej. un paisaje vacío)
+        if vector_ia is None or sum(vector_ia) == 0:
+            print("--> [DEBUG] SEGURIDAD: No se encontró ningún objeto clasificable.")
+            return ("No reconocí ninguna fruta", [], 0)
 
         # Recibimos las 9 características
         sol, circ, prop, rugosidad, p_roj, p_nar, p_ver, sat, bri = vector_ia
         
-        # DEBUG: Observa cómo el programa lee la textura y la saturación
-        print(f"--> [DEBUG] Análisis:")
+        print(f"--> [DEBUG] Análisis de Fruta:")
         print(f"    Rugosidad (Bordes): {rugosidad:.4f} | Proporción: {prop:.2f}")
         print(f"    Saturación: {sat:.1f}/255 | Brillo: {bri:.1f}/255")
 
@@ -72,58 +101,61 @@ class MainController:
 
         return (prediccion, top_5, error)
     
-    def generar_matriz_confusion(self, ruta_carpeta_prueba, archivo_salida='matriz_confusion.csv'):
-        print("\n--- INICIANDO EXAMEN: GENERANDO MATRIZ DE CONFUSIÓN ---")
+    def generar_matriz_confusion(self, ruta_carpeta_prueba, archivo_salida='mi_matriz_confusion.csv', callback=None):
+        if callback: callback("Preparando entorno estadístico...")
         y_verdadero = []
         y_predicho = []
-
-        # Las clases que tu modelo conoce
         clases = self.image_model.target_classes
 
+        # Contamos cuántas imágenes hay en total para calcular el porcentaje de avance
+        total_imagenes = 0
         for clase_real in clases:
             ruta_clase = os.path.join(ruta_carpeta_prueba, clase_real)
-            if not os.path.exists(ruta_clase): 
-                continue
+            if os.path.exists(ruta_clase):
+                total_imagenes += len([f for f in os.listdir(ruta_clase) if not f.startswith("._")])
 
-            print(f"Evaluando imágenes de la carpeta: {clase_real}...")
-            # Analizamos cada imagen de esta carpeta
+        contador = 0
+        for clase_real in clases:
+            ruta_clase = os.path.join(ruta_carpeta_prueba, clase_real)
+            if not os.path.exists(ruta_clase): continue
+
             for img_name in os.listdir(ruta_clase):
                 if img_name.startswith("._"): continue
-                
                 ruta_img = os.path.join(ruta_clase, img_name)
                 
-                # 1. La IA extrae el vector
-                vector_ia = self.image_model.extraer_caracteristicas_imagen_usuario(ruta_img)
+                contador += 1
+                if callback: 
+                    callback(f"Evaluando {clase_real} ({contador}/{total_imagenes})...")
                 
+                # Extracción y predicción silenciosa
+                vector_ia = self.image_model.extraer_caracteristicas_imagen_usuario(ruta_img)
                 if vector_ia is not None:
-                    # 2. La IA hace su predicción
                     prediccion, _, _ = self.classifier.consultar_nueva_imagen(vector_ia, ruta_img)
-                    
-                    # 3. Guardamos la realidad vs la predicción
                     y_verdadero.append(clase_real)
                     y_predicho.append(prediccion)
 
-        # Usamos scikit-learn para cruzar los datos matemáticamente
+        if callback: callback("Calculando Matriz y Mapas de Calor...")
         matriz = confusion_matrix(y_verdadero, y_predicho, labels=clases)
-        
-        # Convertimos la matriz en una tabla bonita de Pandas
         df_matriz = pd.DataFrame(matriz, 
                                  index=[f"Real_{c}" for c in clases], 
                                  columns=[f"Pred_{c}" for c in clases])
         
-        # Exportamos al archivo
-        with open('matriz_confusion.txt', 'w') as f:
-            f.write(df_matriz.to_string())
-        print(f"\n¡Examen terminado! Matriz guardada en: matriz_confusion.txt")
+        # Exportación del archivo de datos
+        df_matriz.to_csv(archivo_salida)
+        
+        # Exportación de la gráfica con Matplotlib y Seaborn
+        try:
+            import seaborn as sns
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(8, 6))
+            sns.heatmap(df_matriz, annot=True, fmt='d', cmap='Purples')
+            plt.title('Matriz de Confusión - Motor CBIR')
+            plt.ylabel('Clase Real (Verdadero)')
+            plt.xlabel('Predicción del Modelo')
+            plt.tight_layout()
+            plt.savefig('matriz_confusion.png')
+            plt.close()
+        except Exception as e:
+            print(f"No se pudo generar la gráfica PNG: {e}")
 
-        plt.figure(figsize=(8, 6))
-        # Usamos 'Purples' para que combine con el diseño de tu Dark UI
-        sns.heatmap(df_matriz, annot=True, fmt='d', cmap='Purples') 
-        plt.title('Matriz de Confusión CBIR')
-        plt.ylabel('Fruta Real (Verdadero)')
-        plt.xlabel('Predicción de la IA')
-
-        # Guardar como imagen
-        plt.tight_layout()
-        plt.savefig('matriz_confusion.png')
-        print("Matriz guardada como imagen: matriz_confusion.png")
+        if callback: callback("Métricas guardadas: 'mi_matriz_confusion.csv' y 'matriz_confusion.png'")
