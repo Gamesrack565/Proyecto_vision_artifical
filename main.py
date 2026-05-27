@@ -6,12 +6,11 @@ from src.vista.vista import MainWindow
 def main():
     app = QApplication(sys.argv)
     
-    # Ruta directa a tu base de datos de imágenes
-    ruta_dataset = r"C:\Users\Lizeth\Varios\tropical-fruits-DB-1024x768"
+    # Ruta directa al directorio de frutas tropicales
+    ruta_dataset = r"C:\\Users\\Lizeth\\Varios\\tropical-fruits-DB-1024x768"
     
     controlador = MainController(ruta_dataset)
     
-    # El arranque ahora es inmediato y limpio
     ventana = MainWindow(controlador)
     ventana.show()
     

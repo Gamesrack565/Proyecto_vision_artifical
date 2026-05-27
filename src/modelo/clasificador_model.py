@@ -1,4 +1,3 @@
-import os
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
@@ -10,7 +9,6 @@ class CBIRClassifier:
         self.X_scaled = None
         self.df = None
         
-        # Ahora usamos 9 características para mayor precisión
         self.feature_columns = [
             'caract_1_solidez',
             'caract_2_circularidad',
@@ -39,7 +37,6 @@ class CBIRClassifier:
         self.db_metadata = df[['clase', 'imagen', 'objeto_id']]
         X = df[self.feature_columns]
         
-        # Normalizamos los datos para que HSV y Circularidad pesen igual
         self.X_scaled = self.scaler.fit_transform(X)
         return len(df)
 
@@ -73,5 +70,4 @@ class CBIRClassifier:
         clase_final = resultados_finales[0]['clase_recuperada']
         error_distancia = resultados_finales[0]['indice_error']
 
-        # Eliminamos el umbral de rechazo para forzar al modelo a clasificar siempre
         return (clase_final, resultados_finales, error_distancia)

@@ -1,14 +1,10 @@
 import os
-import cv2
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QFileDialog, QScrollArea, 
                              QStackedWidget, QProgressBar)
-from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal
 
-# ==============================================================
-# HILO SECUNDARIO 1: CARGA DE BASE DE DATOS
-# ==============================================================
 class LoadWorker(QObject):
     finished = pyqtSignal()
     progress = pyqtSignal(str)
@@ -22,9 +18,6 @@ class LoadWorker(QObject):
         self.controller.ejecutar_procesamiento_inicial(callback=self.progress.emit, forzar_recalculo=self.forzar_recalculo)
         self.finished.emit()
 
-# ==============================================================
-# NUEVO HILO SECUNDARIO 2: EVALUACIÓN ESTADÍSTICA (MATRIZ)
-# ==============================================================
 class EvalWorker(QObject):
     finished = pyqtSignal()
     progress = pyqtSignal(str)
@@ -42,9 +35,6 @@ class EvalWorker(QObject):
         )
         self.finished.emit()
 
-# ==============================================================
-# VENTANA PRINCIPAL
-# ==============================================================
 class MainWindow(QMainWindow):
     def __init__(self, controller):
         super().__init__()
@@ -137,12 +127,10 @@ class MainWindow(QMainWindow):
 
         top_bar = QHBoxLayout()
         
-        # Botón de Imagen (Rosa Neón)
         self.btn_load = QPushButton("Seleccionar Imagen")
         self.btn_load.setStyleSheet("QPushButton { background-color: #FF3366; color: #FFFFFF; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: bold; } QPushButton:hover { background-color: #FF6688; } QPushButton:disabled { background-color: #444454; color: #8A8A9D; }")
         self.btn_load.clicked.connect(self.seleccionar_imagen)
         
-        # NUEVO: Botón de Evaluación (Púrpura Elegante)
         self.btn_eval = QPushButton("Evaluar Modelo")
         self.btn_eval.setStyleSheet("QPushButton { background-color: #9D4EDD; color: #FFFFFF; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: bold; } QPushButton:hover { background-color: #B388FF; } QPushButton:disabled { background-color: #444454; color: #8A8A9D; }")
         self.btn_eval.clicked.connect(self.iniciar_evaluacion)
@@ -197,22 +185,16 @@ class MainWindow(QMainWindow):
         self.worker.finished.connect(lambda: self.stack.setCurrentIndex(3))
         self.thread.start()
 
-    # ==============================================================
-    # NUEVA FUNCIÓN: PROCESO DE EVALUACIÓN DESDE LA INTERFAZ
-    # ==============================================================
     def iniciar_evaluacion(self):
-        # Deshabilitamos controles para evitar clicks accidentales mientras calcula
         self.btn_load.setEnabled(False)
         self.btn_eval.setEnabled(False)
-        self.lbl_status.setText("Inicializando examen masivo sobre las 844 imágenes...")
+        self.lbl_status.setText("Inicializando examen masivo sobre las imágenes...")
 
         self.eval_thread = QThread()
         self.eval_worker = EvalWorker(self.controller, self.controller.dataset_path)
         self.eval_worker.moveToThread(self.eval_thread)
-
         self.eval_thread.started.connect(self.eval_worker.run)
         self.eval_worker.progress.connect(lambda txt: self.lbl_status.setText(txt))
-
         self.eval_worker.finished.connect(self.eval_thread.quit)
         self.eval_worker.finished.connect(self.eval_worker.deleteLater)
         self.eval_thread.finished.connect(self.eval_thread.deleteLater)
@@ -225,10 +207,10 @@ class MainWindow(QMainWindow):
         self.eval_thread.start()
 
     def seleccionar_imagen(self):
-        ruta, _ = QFileDialog.getOpenFileName(self, "Abrir Imagen de Fruta", "", "Imágenes (*.png *.jpg *.jpeg *.bmp)")
-        if not ruta: return
+        ruta, _ = QFileDialog.getOpenFileName(self, "Abrir Imagen", "", "Imágenes (*.png *.jpg *.jpeg *.bmp)")
+        if not ruta: 
+            return
 
-        # Renderizar la imagen seleccionada
         pix = QPixmap(ruta)
         self.display_query.setPixmap(pix.scaled(self.display_query.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
 
@@ -239,10 +221,10 @@ class MainWindow(QMainWindow):
         self.mostrar_resultados(pred, top5)
 
     def mostrar_resultados(self, prediccion, resultados_top5):
-        # Limpiar contenedor de tarjetas
         while self.cards_layout.count():
             item = self.cards_layout.takeAt(0)
-            if item.widget(): item.widget().deleteLater()
+            if item.widget(): 
+                item.widget().deleteLater()
 
         if "detectado" in prediccion or "No" in prediccion:
             self.lbl_prediccion.setText(f"PREDICCIÓN: BLOQUEADO - {prediccion}")
@@ -254,7 +236,6 @@ class MainWindow(QMainWindow):
         self.lbl_prediccion.setStyleSheet("font-size: 20px; font-weight: bold; color: #FFFFFF;")
         self.lbl_status.setText("Consulta finalizada con éxito.")
 
-        # Crear las 5 tarjetas de similitud
         for res in resultados_top5:
             card = QWidget()
             card.setFixedSize(160, 220)

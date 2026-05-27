@@ -1,10 +1,10 @@
 import os
+import cv2
+import pandas as pd
+import numpy as np
+from sklearn.metrics import confusion_matrix
 from src.modelo.image_model import ImageModel
 from src.modelo.clasificador_model import CBIRClassifier
-import pandas as pd
-from sklearn.metrics import confusion_matrix
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 class MainController:
     def __init__(self, dataset_path):
@@ -15,14 +15,10 @@ class MainController:
     def ejecutar_procesamiento_inicial(self, callback=None, forzar_recalculo=False):
         def log(mensaje):
             print(mensaje)
-            if callback:
+            if callback: 
                 callback(mensaje)
 
         log("--- FASE 1: EXTRACCIÓN Y BASE DE DATOS ---")
-        
-        # LÓGICA DE DECISIÓN: 
-        # Si NO forzamos y el CSV existe, usamos la carga ultra rápida.
-        # Si forzamos, o si el archivo no existe, hace el escaneo de 30 minutos.
         if not forzar_recalculo and os.path.exists('base_datos_caracteristicas.csv'):
             log("Base de datos CSV detectada. Saltando extracción de imágenes...")
         else:
@@ -31,7 +27,6 @@ class MainController:
             
             log("Paso 4: Extrayendo características avanzadas (Forma, Textura, Color)...")
             db = self.image_model.create_indexed_database()
-            
             if db is not None:
                 log("Base de datos indexada creada y exportada a CSV.")
             else:
@@ -48,66 +43,79 @@ class MainController:
             log("ERROR: No se pudo indexar.")
 
     def procesar_consulta(self, ruta_imagen, callback=None):
-        if callback:
+        if callback: 
             callback("Analizando imagen...")
 
-        import cv2 # Nos aseguramos de tener OpenCV disponible aquí
-
         # ==============================================================
-        # DEFENSA 1: BLOQUEO DE PERSONAS Y ROSTROS (Haar Cascade)
+        # DEFENSA 1: BLOQUEO DE PERSONAS (Calibrado a 80x80 y minNeighbors=12)
         # ==============================================================
         image_cv = cv2.imread(ruta_imagen)
         if image_cv is not None:
             gray_cv = cv2.cvtColor(image_cv, cv2.COLOR_BGR2GRAY)
-            # Cargamos el modelo pre-entrenado de OpenCV para detectar rostros frontales
             face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
             
-            # minNeighbors=10 es el secreto. Exige mucha seguridad antes de decir "es una cara"
-            # minSize=(150, 150) asegura que no confunda manchas pequeñas con rostros
-            rostros = face_cascade.detectMultiScale(gray_cv, scaleFactor=1.1, minNeighbors=7, minSize=(80, 80))
+            # Subimos vecinos a 15 y tamaño a 100x100 para evitar los "ojos" del marañón
+            rostros = face_cascade.detectMultiScale(gray_cv, scaleFactor=1.1, minNeighbors=15, minSize=(100, 100))
             
             if len(rostros) > 0:
                 print("--> [DEBUG] SEGURIDAD: Rostro humano detectado. Bloqueando consulta.")
-                # Al devolver los corchetes vacíos [], tu vista automáticamente mostrará "BLOQUEADO"
                 return ("Rostro humano detectado", [], 0)
 
         # ==============================================================
-        # EXTRACCIÓN NORMAL DE LA FRUTA
+        # EXTRACCIÓN Y DEFENSA 2 (Imagen fuera de contexto / Vacía)
         # ==============================================================
-        if callback:
+        if callback: 
             callback("Segmentando imagen y extrayendo vector...")
 
         vector_ia = self.image_model.extraer_caracteristicas_imagen_usuario(ruta_imagen)
 
-        # DEFENSA 2: Si no encontró nada con forma en absoluto (ej. un paisaje vacío)
         if vector_ia is None or sum(vector_ia) == 0:
             print("--> [DEBUG] SEGURIDAD: No se encontró ningún objeto clasificable.")
             return ("No reconocí ninguna fruta", [], 0)
 
-        # Recibimos las 9 características
+        # Desempaquetamos las 9 características extraídas
         sol, circ, prop, rugosidad, p_roj, p_nar, p_ver, sat, bri = vector_ia
-        
-        print(f"--> [DEBUG] Análisis de Fruta:")
-        print(f"    Rugosidad (Bordes): {rugosidad:.4f} | Proporción: {prop:.2f}")
-        print(f"    Saturación: {sat:.1f}/255 | Brillo: {bri:.1f}/255")
+        print(f"--> [DEBUG] Análisis: Rugosidad: {rugosidad:.4f} | Sat: {sat:.1f} | Bri: {bri:.1f}")
 
-        if callback:
+        # ==============================================================
+        # DEFENSA 3: CANDADO GEOMÉTRICO (Filtro Anti-Objetos Cotidianos)
+        # ==============================================================
+        if sol < 0.65 or prop > 3.0 or prop < 0.33:
+            print(f"--> [DEBUG] SEGURIDAD: Geometría inválida. Solidez: {sol:.2f}, Proporción: {prop:.2f}")
+            return ("Forma no válida (No parece una fruta)", [], 0)
+
+        if callback: 
             callback("Consultando similitud en el Motor CBIR...")
 
+        # ==============================================================
+        # PASO CLAVE: CONSULTA AL CLASIFICADOR (Aquí se define la variable 'error')
+        # ==============================================================
         prediccion, top_5, error = self.classifier.consultar_nueva_imagen(
             vector_caracteristicas=vector_ia,
             nombre_imagen=ruta_imagen
         )
 
+        # ==============================================================
+        # DEFENSA 5: UMBRAL DE DISTANCIA (Filtro de Objetos Desconocidos)
+        # ==============================================================
+        UMBRAL_MAXIMO = 8.5 
+        
+        if error > UMBRAL_MAXIMO:
+            print(f"--> [DEBUG] SEGURIDAD: Objeto desconocido. Error ({error:.4f}) superó el umbral de {UMBRAL_MAXIMO}.")
+            return (f"No lo reconoce (Distancia altísima: {error:.2f})", [], error)
+
         return (prediccion, top_5, error)
-    
+
+    # ==============================================================
+    # EVALUACIÓN BAJO DEMANDA (Matriz de Confusión)
+    # ==============================================================
     def generar_matriz_confusion(self, ruta_carpeta_prueba, archivo_salida='mi_matriz_confusion.csv', callback=None):
-        if callback: callback("Preparando entorno estadístico...")
+        if callback: 
+            callback("Preparando entorno estadístico...")
         y_verdadero = []
         y_predicho = []
         clases = self.image_model.target_classes
 
-        # Contamos cuántas imágenes hay en total para calcular el porcentaje de avance
         total_imagenes = 0
         for clase_real in clases:
             ruta_clase = os.path.join(ruta_carpeta_prueba, clase_real)
@@ -117,33 +125,36 @@ class MainController:
         contador = 0
         for clase_real in clases:
             ruta_clase = os.path.join(ruta_carpeta_prueba, clase_real)
-            if not os.path.exists(ruta_clase): continue
+            if not os.path.exists(ruta_clase): 
+                continue
 
             for img_name in os.listdir(ruta_clase):
-                if img_name.startswith("._"): continue
+                if img_name.startswith("._"): 
+                    continue
                 ruta_img = os.path.join(ruta_clase, img_name)
                 
                 contador += 1
                 if callback: 
                     callback(f"Evaluando {clase_real} ({contador}/{total_imagenes})...")
                 
-                # Extracción y predicción silenciosa
                 vector_ia = self.image_model.extraer_caracteristicas_imagen_usuario(ruta_img)
                 if vector_ia is not None:
                     prediccion, _, _ = self.classifier.consultar_nueva_imagen(vector_ia, ruta_img)
                     y_verdadero.append(clase_real)
                     y_predicho.append(prediccion)
+                else:
+                    y_verdadero.append(clase_real)
+                    y_predicho.append("No lo reconoce")
 
-        if callback: callback("Calculando Matriz y Mapas de Calor...")
-        matriz = confusion_matrix(y_verdadero, y_predicho, labels=clases)
-        df_matriz = pd.DataFrame(matriz, 
-                                 index=[f"Real_{c}" for c in clases], 
-                                 columns=[f"Pred_{c}" for c in clases])
+        if callback: 
+            callback("Calculando Matriz y Mapas de Calor...")
         
-        # Exportación del archivo de datos
+        labels_completos = clases + ["No lo reconoce"] if "No lo reconoce" in y_predicho else clases
+        matriz = confusion_matrix(y_verdadero, y_predicho, labels=labels_completos)
+        df_matriz = pd.DataFrame(matriz, index=[f"Real_{c}" for c in clases], columns=[f"Pred_{c}" for c in labels_completos])
+        
         df_matriz.to_csv(archivo_salida)
         
-        # Exportación de la gráfica con Matplotlib y Seaborn
         try:
             import seaborn as sns
             import matplotlib.pyplot as plt
@@ -158,4 +169,5 @@ class MainController:
         except Exception as e:
             print(f"No se pudo generar la gráfica PNG: {e}")
 
-        if callback: callback("Métricas guardadas: 'mi_matriz_confusion.csv' y 'matriz_confusion.png'")
+        if callback: 
+            callback("Métricas guardadas: 'mi_matriz_confusion.csv' y 'matriz_confusion.png'")

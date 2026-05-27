@@ -22,33 +22,44 @@ class ImageModel:
 
     def _calcular_caracteristicas_desde_mascara(self, image, mascara_binaria):
         contours, _ = cv2.findContours(mascara_binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours: return [0]*9
+        if not contours: 
+            return [0] * 9
 
-        contorno = max(contours, key=cv2.contourArea)
-        area = cv2.contourArea(contorno)
-        perim = cv2.arcLength(contorno, True)
+        # ==============================================================
+        # NUEVA DEFENSA 4: FILTRO DE ISLAS DISPERSAS (Anti-Gráficas y Texto)
+        # ==============================================================
+        area_total_todos_los_contornos = sum([cv2.contourArea(c) for c in contours])
+        contorno_principal = max(contours, key=cv2.contourArea)
+        area_principal = cv2.contourArea(contorno_principal)
         
-        # 1. FORMA (Circularidad y Trapecios)
-        x, y, w, h = cv2.boundingRect(contorno)
-        hull = cv2.convexHull(contorno)
+        # Si el objeto más grande representa menos del 60% de todo lo que hay en la imagen,
+        # significa que es ruido disperso (como los puntos de una gráfica o texto).
+        if area_total_todos_los_contornos > 0 and (area_principal / area_total_todos_los_contornos) < 0.60:
+            print("--> [DEBUG] SEGURIDAD: Imagen dispersa (posible gráfica/texto). Rechazando.")
+            return [0] * 9 # Retorna ceros para forzar el bloqueo en el controlador
+
+        area = area_principal
+        perim = cv2.arcLength(contorno_principal, True)
+        
+        # 1. FORMA (Circularidad y Proporción de aspecto para asimetrías como el Cashew)
+        x, y, w, h = cv2.boundingRect(contorno_principal)
+        hull = cv2.convexHull(contorno_principal)
         hull_area = cv2.contourArea(hull)
         
         solidez = float(area) / hull_area if hull_area > 0 else 0
         circularidad = (4 * np.pi * area) / (perim ** 2) if perim > 0 else 0
-        proporcion_aspecto = float(w) / h if h > 0 else 0 # Detecta el alargamiento del Cashew
+        proporcion_aspecto = float(w) / h if h > 0 else 0
 
-        # 2. TEXTURA (Rugosidad de la Naranja vs Piel Lisa de Ciruela/Sandía)
+        # 2. TEXTURA (Filtro Canny para rugosidad de Orange y líneas de Onion)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         gray_masked = cv2.bitwise_and(gray, gray, mask=mascara_binaria)
-        # El filtro Canny detecta los poros y líneas
         bordes = cv2.Canny(gray_masked, 50, 150)
         densidad_bordes = np.sum(bordes > 0) / area if area > 0 else 0
 
-        # 3. COLOR AVANZADO (Tonos, Claridad y Vistosidad)
+        # 3. COLOR AVANZADO (HSV filtrando Brillos/Blancos S<20 y Sombras/Negros V<20)
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
         
-        # Ignoramos fondos y sombras profundas
         mask_color_real = (mascara_binaria == 255) & (s > 20) & (v > 20)
         h_fruta = h[mask_color_real]
         s_fruta = s[mask_color_real]
@@ -56,27 +67,32 @@ class ImageModel:
         
         total_pixeles = len(h_fruta) if len(h_fruta) > 0 else 1
 
-        # Porcentajes de Tono base
+        # Rangos de histograma simplificado para el Tono (Hue)
         porc_rojo = np.sum(((h_fruta >= 0) & (h_fruta <= 10)) | (h_fruta >= 165)) / total_pixeles
         porc_naranja = np.sum((h_fruta >= 11) & (h_fruta <= 35)) / total_pixeles
         porc_verde = np.sum((h_fruta >= 36) & (h_fruta <= 85)) / total_pixeles
 
-        # Intensidad y Oscuridad (El secreto para separar Cebolla de Naranja y Ciruela de Rojo)
+        # Intensidades medias de saturación (vistoza) y brillo (claridad/oscuridad)
         saturacion_media = np.mean(s_fruta) if total_pixeles > 1 else 0
         brillo_medio = np.mean(v_fruta) if total_pixeles > 1 else 0
 
-        return solidez, circularidad, proporcion_aspecto, densidad_bordes, porc_rojo, porc_naranja, porc_verde, saturacion_media, brillo_medio
+        return [solidez, circularidad, proporcion_aspecto, densidad_bordes, 
+                porc_rojo, porc_naranja, porc_verde, saturacion_media, brillo_medio]
     
     def load_and_process_dataset(self):
+        self.features_data = []
         for fruit_class in self.target_classes:
             class_path = os.path.join(self.dataset_path, fruit_class)
-            if not os.path.exists(class_path): continue
+            if not os.path.exists(class_path): 
+                continue
 
             for img_name in os.listdir(class_path):
-                if img_name.startswith("._"): continue
+                if img_name.startswith("._"): 
+                    continue
                 img_path = os.path.join(class_path, img_name)
                 image = cv2.imread(img_path)
-                if image is None: continue
+                if image is None: 
+                    continue
 
                 mascara = self._obtener_mascara_perfecta(image)
                 
@@ -97,19 +113,23 @@ class ImageModel:
                     })
 
     def create_indexed_database(self):
-        if not self.features_data: return None
+        if not self.features_data: 
+            return None
         df = pd.DataFrame(self.features_data)
         self.indexed_db = df.set_index(['clase', 'imagen', 'objeto_id'])
         self.indexed_db.to_csv('base_datos_caracteristicas.csv')
         return self.indexed_db
 
     def extraer_caracteristicas_imagen_usuario(self, ruta_imagen):
-        if not os.path.exists(ruta_imagen): return None
+        if not os.path.exists(ruta_imagen): 
+            return None
         image = cv2.imread(ruta_imagen)
-        if image is None: return None
+        if image is None: 
+            return None
 
         mascara = self._obtener_mascara_perfecta(image)
-        if cv2.countNonZero(mascara) < 500: return None
+        if cv2.countNonZero(mascara) < 500: 
+            return None
 
         vector = self._calcular_caracteristicas_desde_mascara(image, mascara)
         return list(vector)
