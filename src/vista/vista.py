@@ -21,7 +21,6 @@ class LoadWorker(QObject):
         self.finished.emit()
 
 # --- VENTANA PRINCIPAL REDISEÑADA ---
-# --- VENTANA PRINCIPAL REDISEÑADA ---
 class MainWindow(QMainWindow):
     def __init__(self, controller):
         super().__init__()
@@ -258,7 +257,7 @@ class MainWindow(QMainWindow):
             else:
                 img_lbl.setText("Sin Imagen")
 
-            txt_lbl = QLabel(f"{r['nombre_imagen']}\nDistancia: {r['indice_error']:.4f}")
+            txt_lbl = QLabel(f"{r['nombre_imagen']}\nError: {r['indice_error']:.4f}")
             txt_lbl.setStyleSheet("font-size: 12px; font-weight: bold; color: #A0A0B5; margin-top: 5px;")
             txt_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 

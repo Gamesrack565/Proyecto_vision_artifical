@@ -10,12 +10,17 @@ class CBIRClassifier:
         self.X_scaled = None
         self.df = None
         
-        # Ahora usamos 4 características para mayor precisión
+        # Ahora usamos 9 características para mayor precisión
         self.feature_columns = [
             'caract_1_solidez',
             'caract_2_circularidad',
-            'caract_3_matiz_H',
-            'caract_4_saturacion_S'
+            'caract_3_proporcion',
+            'caract_4_rugosidad',
+            'caract_5_porc_rojo',
+            'caract_6_porc_naranja',
+            'caract_7_porc_verde',
+            'caract_8_saturacion',
+            'caract_9_brillo'
         ]
 
     def entrenar_modelo(self, csv_path):
@@ -38,30 +43,21 @@ class CBIRClassifier:
         self.X_scaled = self.scaler.fit_transform(X)
         return len(df)
 
-    def consultar_nueva_imagen(self, vector_caracteristicas, nombre_imagen=None, umbral_confianza=0.45):
+    def consultar_nueva_imagen(self, vector_caracteristicas, nombre_imagen=None):
         vector_df = pd.DataFrame([vector_caracteristicas], columns=self.feature_columns)
         vector_scaled = self.scaler.transform(vector_df)[0]
 
-        # ========================================================
-        # CÁLCULO CBIR PURO (Distancia Euclidiana Vectorial)
-        # ========================================================
         distancias = np.linalg.norm(self.X_scaled - vector_scaled, axis=1)
         
         resultados_temp = self.db_metadata.copy()
         resultados_temp['distancia'] = distancias
         resultados_ordenados = resultados_temp.sort_values(by='distancia')
 
-        # ========================================================
-        # LÓGICA DE "ZONAS" (Estricta a 1 sola clase)
-        # ========================================================
-        # Tomamos SOLO la clase del vector matemáticamente más cercano (Top 1)
         clase_ganadora = resultados_ordenados.iloc[0]['clase']
-
         resultados_finales = []
         imagenes_vistas = set()
 
         for _, fila in resultados_ordenados.iterrows():
-            # SOLO permitimos que entren al Top 5 si son de la clase ganadora absoluta
             if fila['clase'] == clase_ganadora:
                 if fila['imagen'] not in imagenes_vistas:
                     resultados_finales.append({
@@ -77,11 +73,5 @@ class CBIRClassifier:
         clase_final = resultados_finales[0]['clase_recuperada']
         error_distancia = resultados_finales[0]['indice_error']
 
-        print(f"--> [DEBUG] Motor CBIR - Distancia a la fruta más cercana: {error_distancia:.3f}")
-
-        # UMBRAL DE RECHAZO MODERADO: Si la distancia matemática supera 2.5
-        if error_distancia > 1.5:
-            print("--> [DEBUG] RECHAZADO POR FILTRO MATEMÁTICO (Muy lejos del dataset)")
-            return ("No entendí tu imagen", [], error_distancia)
-
+        # Eliminamos el umbral de rechazo para forzar al modelo a clasificar siempre
         return (clase_final, resultados_finales, error_distancia)

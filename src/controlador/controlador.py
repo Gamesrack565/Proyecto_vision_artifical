@@ -15,16 +15,21 @@ class MainController:
                 callback(mensaje)
 
         log("--- FASE 1: EXTRACCIÓN Y BASE DE DATOS ---")
-        log("Paso 1, 2 y 3: Cargando imágenes y detectando objetos...")
-        self.image_model.load_and_process_dataset()
-
-        log("Paso 4: Extrayendo características (Solidez, Circ, Matiz, Saturación)...")
-        db = self.image_model.create_indexed_database()
-
-        if db is not None:
-            log("Base de datos indexada creada y exportada a CSV.")
+        
+        # MEJORA: Evitamos los 30 minutos de espera si el CSV ya está creado
+        if os.path.exists('base_datos_caracteristicas.csv'):
+            log("Base de datos CSV detectada. Saltando extracción de imágenes...")
         else:
-            log("ADVERTENCIA: No se generó la base de datos.")
+            log("Paso 1, 2 y 3: Cargando imágenes y detectando objetos (Tomará tiempo)...")
+            self.image_model.load_and_process_dataset()
+            
+            log("Paso 4: Extrayendo características (Solidez, Circ, Matiz, Saturación, Textura)...")
+            db = self.image_model.create_indexed_database()
+            
+            if db is not None:
+                log("Base de datos indexada creada y exportada a CSV.")
+            else:
+                log("ADVERTENCIA: No se generó la base de datos.")
 
         log("\n--- FASE 2: MOTOR CBIR ---")
         log("Paso 5: Indexando Espacio Vectorial...")
@@ -40,29 +45,18 @@ class MainController:
         if callback:
             callback("Segmentando imagen y extrayendo vector...")
 
-        import cv2 # Asegúrate de que esté importado arriba
-
-        # DEFENSA 1: BLOQUEO DE SELFIES / PERSONAS
-        image_cv = cv2.imread(ruta_imagen)
-        if image_cv is not None:
-            gray_cv = cv2.cvtColor(image_cv, cv2.COLOR_BGR2GRAY)
-            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-            
-            # minSize=(100, 100) evita que confunda pecas de frutas con rostros
-            rostros = face_cascade.detectMultiScale(gray_cv, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100))
-            
-            if len(rostros) > 0:
-                print("--> [DEBUG] RECHAZADO: Rostro humano detectado")
-                return ("No entendí tu imagen", [], 0)
-
-        # Si no hay rostros, procedemos con la extracción normal
         vector_ia = self.image_model.extraer_caracteristicas_imagen_usuario(ruta_imagen)
 
         if vector_ia is None:
             return ("Error al segmentar imagen", [], 0)
 
-        solidez, circ, h, sat = vector_ia
-        print(f"--> [DEBUG] Segmentación - Solidez: {solidez:.3f} | Circularidad: {circ:.3f}")
+        # Recibimos las 9 características
+        sol, circ, prop, rugosidad, p_roj, p_nar, p_ver, sat, bri = vector_ia
+        
+        # DEBUG: Observa cómo el programa lee la textura y la saturación
+        print(f"--> [DEBUG] Análisis:")
+        print(f"    Rugosidad (Bordes): {rugosidad:.4f} | Proporción: {prop:.2f}")
+        print(f"    Saturación: {sat:.1f}/255 | Brillo: {bri:.1f}/255")
 
         if callback:
             callback("Consultando similitud en el Motor CBIR...")
